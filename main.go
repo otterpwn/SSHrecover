@@ -5,8 +5,17 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
+	"os/exec"
+	"strings"
 )
+
+// check if a file is a SSH RSA Private key
+func isRSAKey(data []byte) bool {
+	privateKey := string(data)
+	return strings.Contains(privateKey, "PRIVATE KEY") && strings.Contains(privateKey, "SSH")
+}
 
 // given a file onject, read information until a nullbyte
 // used for the initial null-terminated string
@@ -92,18 +101,57 @@ func printKeyNumber(number int) {
 }
 
 // print found RSA public exponent `e`
-func printPubExponent(e string) {
-	fmt.Printf("[~] Found Public Exponent: 0x%s\n", e)
+func printExponent(e string, pub bool) {
+	if pub {
+		fmt.Printf("[~] Found Public Exponent: 0x%s\n", e)
+	} else {
+		if !fullValuesFlag {
+			fmt.Printf("[~] Found Private Exponent: 0x%s...%s\n", e[0:10], e[len(e)-10:])
+			return
+		}
+		fmt.Printf("[~] Found Private Exponent: 0x%s\n", e)
+	}
 }
 
 // print found RSA modulus `n`
-func printModulus(n string) {
+func printModulus(n string, pub bool) {
+	if pub {
+		if !fullValuesFlag {
+			fmt.Printf("[~] Found RSA Modulus: 0x%s...%s\n", n[0:10], n[len(n)-10:])
+			return
+		}
+		fmt.Printf("[~] Found RSA Modulus: 0x%s\n", n)
+	} else {
+		if !fullValuesFlag {
+			fmt.Printf("[~] Found Private RSA Modulus: 0x%s...%s\n", n[0:10], n[len(n)-10:])
+			return
+		}
+		fmt.Printf("[~] Found Private RSA Modulus: 0x%s\n", n)
+
+	}
+}
+
+// print found RSA Inverse of Q mod P `iqmp`
+func printIQMP(iqmp string) {
 	if !fullValuesFlag {
-		fmt.Printf("[~] Found RSA Modulus: 0x%s...%s\n", n[0:10], n[len(n)-10:])
+		fmt.Printf("[~] Found Private Exponent: 0x%s...%s\n", iqmp[0:10], iqmp[len(iqmp)-10:])
 		return
 	}
-	fmt.Printf("[~] Found RSA Modulus: 0x%s\n", n)
+	fmt.Printf("[~] Found Private Exponent: 0x%s\n", iqmp)
+}
 
+// print found RSA primes `p` and `q`
+func printPrimes(p, q string) {
+	if !fullValuesFlag {
+		fmt.Printf("[~] Found RSA Primes 0x%s...%s | 0x%s...%s\n", p[0:10], p[len(p)-10:], q[0:10], q[len(q)-10:])
+		return
+	}
+	fmt.Printf("[~] Found RSA Primes 0x%s | 0x%s\n", p, q)
+}
+
+// print key comment at the end of the key
+func printComment(comment string) {
+	fmt.Printf("[~] Printing comment string: %s\n", comment)
 }
 
 var fullValuesFlag bool = false
@@ -111,10 +159,22 @@ var fullValuesFlag bool = false
 func main() {
 	// check for CLI argument and print help menu
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: ./sshrecover <filename> [full]")
+		fmt.Println("Usage: ./sshrecover <id_rsa> [full]")
 		return
 	}
 	filename := os.Args[1]
+
+	// check if the given file is a valid private key
+	fileData, err := ioutil.ReadFile(filename)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	if !isRSAKey(fileData) {
+		fmt.Println("[!] The given file is not a valid SSH RSA Private Key... stopping!")
+		return
+	}
 
 	// check if `full` argument is supplied
 	if len(os.Args) == 3 {
@@ -124,12 +184,27 @@ func main() {
 			fmt.Printf("[!] Unrecognized argument %s, running with default flags\n", os.Args[2])
 		}
 	} else if len(os.Args) > 3 {
-		fmt.Println("Too many arguments. Usage: ./sshrecover <filename> [full]")
+		fmt.Println("Too many arguments. Usage: ./sshrecover <id_rsa> [full]")
 		return
 	}
 
+	// convert RSA Key to PlainText format
+	commandString := fmt.Sprintf("cat %s | grep -v '^--' | base64 -d > %s.pt", filename, filename)
+	cmd := exec.Command("bash", "-c", commandString)
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err = cmd.Run()
+	if err != nil {
+		fmt.Println("[!] Error while converting Key to plaintext format:", err)
+		return
+	}
+
+	newFilename := fmt.Sprintf("%s.pt", filename)
+
 	// check if the given file exists and can be opened
-	file, err := os.Open(filename)
+	file, err := os.Open(newFilename)
 	if err != nil {
 		fmt.Println("Error:", err)
 		return
@@ -181,6 +256,7 @@ func main() {
 	// parse public key part
 	fmt.Println()
 	fmt.Println("[*] Parsing Public Key Section [*]")
+
 	readLength(file)
 	length = readLength(file)
 	readNumberOfBytes(length, file)
@@ -188,12 +264,69 @@ func main() {
 	// reading RSA public exponent
 	length = readLength(file)
 	e := bytesToHex(readNumberOfBytes(length, file))
-	printPubExponent(e)
+	printExponent(e, true)
 
 	// reading RSA modulus
 	length = readLength(file)
 	n := bytesToHex(readNumberOfBytes(length, file))
-	printModulus(n)
+	printModulus(n, true)
 
 	//parse private key
+	fmt.Println()
+	fmt.Println("[*] Parsing Private Key Section [*]")
+
+	readLength(file)
+	// read 2 check-int values
+	checkInt := readNumberOfBytes(0x4, file)
+	secondCheckInt := readNumberOfBytes(0x4, file)
+	if bytesToHex(checkInt) == bytesToHex(secondCheckInt) {
+		fmt.Println("[*] Successfully retrieved two Check-Int values")
+	} else {
+		fmt.Println("[!] The two found Check-Int values do not match")
+		return
+	}
+
+	length = readLength(file)
+	_ = readNumberOfBytes(length, file)
+
+	// reading private RSA modulus
+	length = readLength(file)
+	n = bytesToHex(readNumberOfBytes(length, file))
+	printModulus(n, false)
+
+	// read public RSA exponent
+	length = readLength(file)
+	e = bytesToHex(readNumberOfBytes(length, file))
+	printExponent(e, true)
+
+	// read private RSA exponent
+	length = readLength(file)
+	d := bytesToHex(readNumberOfBytes(length, file))
+	printExponent(d, false)
+
+	// read RSA IQMP
+	length = readLength(file)
+	iqmp := readNumberOfBytes(length, file)
+	printIQMP(bytesToHex(iqmp))
+
+	// read RSA primes
+	length = readLength(file)
+	p := bytesToHex(readNumberOfBytes(length, file))
+	length = readLength(file)
+	q := bytesToHex(readNumberOfBytes(length, file))
+	printPrimes(p, q)
+
+	// read key comment string
+	length = readLength(file)
+	comment := string(readNumberOfBytes(length, file))
+	printComment(comment)
+
+	// cleanup section
+	fmt.Println()
+	fmt.Println("[*] Cleaning up after execution [*]")
+	err = os.Remove(newFilename)
+
+	if err != nil {
+		return
+	}
 }
