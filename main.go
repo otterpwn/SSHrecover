@@ -355,7 +355,7 @@ var fullValuesFlag bool = false
 func main() {
 	// check for CLI argument and print help menu
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: ./sshrecover <id_rsa> [full]")
+		fmt.Println("Usage: ./sshrecover <filename> (priv/pub) [full]")
 		return
 	}
 	filename := os.Args[1]
