@@ -2,7 +2,7 @@
 `SSHrecover` is a Proof of Concept project based on [this](https://www.youtube.com/watch?v=4F1XGsvB2iA) video by [IppSec](https://github.com/IppSec) that shows how it's possible to recover RSA private and public varibles from a total or partial SSH key.
 
 ## Usage
-The project it's written in GoLang and does not require any non-defaul packages/dependencies.
+The project it's written in GoLang and does not require any non-default packages/dependencies.
 The script can be ran without compiling with
 ```
 go run main.go <filename> (priv / pub) [full]
