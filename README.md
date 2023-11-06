@@ -25,3 +25,7 @@ in the project directory.
 # or to print the full parameter values
 ./sshrecover id_rsa.pub pub full
 ```
+
+## TODO
+- [ ] Add functionality to parse encrypted keys
+- [ ] Put functions in their own modules
