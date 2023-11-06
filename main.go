@@ -11,10 +11,27 @@ import (
 	"strings"
 )
 
+// checks if the specified option is the command line arguments
+func checkIfOption(targetFlag string, arguments []string) bool {
+	for _, argument := range arguments {
+		if argument == targetFlag {
+			return true
+		}
+	}
+
+	return false
+}
+
 // check if a file is a SSH RSA Private key
-func isRSAKey(data []byte) bool {
+func checkIfPriv(data []byte) bool {
 	privateKey := string(data)
 	return strings.Contains(privateKey, "PRIVATE KEY") && strings.Contains(privateKey, "SSH")
+}
+
+// check if a file is a SSH RSA Public key
+func checkIfPub(data []byte) bool {
+	privateKey := string(data)
+	return strings.Contains(privateKey, "ssh-rsa")
 }
 
 // given a file onject, read information until a nullbyte
@@ -134,10 +151,10 @@ func printModulus(n string, pub bool) {
 // print found RSA Inverse of Q mod P `iqmp`
 func printIQMP(iqmp string) {
 	if !fullValuesFlag {
-		fmt.Printf("[~] Found Private Exponent: 0x%s...%s\n", iqmp[0:10], iqmp[len(iqmp)-10:])
+		fmt.Printf("[~] Found Private IQMP: 0x%s...%s\n", iqmp[0:10], iqmp[len(iqmp)-10:])
 		return
 	}
-	fmt.Printf("[~] Found Private Exponent: 0x%s\n", iqmp)
+	fmt.Printf("[~] Found Private IQMP: 0x%s\n", iqmp)
 }
 
 // print found RSA primes `p` and `q`
@@ -154,63 +171,8 @@ func printComment(comment string) {
 	fmt.Printf("[~] Printing comment string: %s\n", comment)
 }
 
-var fullValuesFlag bool = false
-
-func main() {
-	// check for CLI argument and print help menu
-	if len(os.Args) < 2 {
-		fmt.Println("Usage: ./sshrecover <id_rsa> [full]")
-		return
-	}
-	filename := os.Args[1]
-
-	// check if the given file is a valid private key
-	fileData, err := ioutil.ReadFile(filename)
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
-	}
-
-	if !isRSAKey(fileData) {
-		fmt.Println("[!] The given file is not a valid SSH RSA Private Key... stopping!")
-		return
-	}
-
-	// check if `full` argument is supplied
-	if len(os.Args) == 3 {
-		if os.Args[2] == "full" {
-			fullValuesFlag = true
-		} else {
-			fmt.Printf("[!] Unrecognized argument %s, running with default flags\n", os.Args[2])
-		}
-	} else if len(os.Args) > 3 {
-		fmt.Println("Too many arguments. Usage: ./sshrecover <id_rsa> [full]")
-		return
-	}
-
-	// convert RSA Key to PlainText format
-	commandString := fmt.Sprintf("cat %s | grep -v '^--' | base64 -d > %s.pt", filename, filename)
-	cmd := exec.Command("bash", "-c", commandString)
-
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	err = cmd.Run()
-	if err != nil {
-		fmt.Println("[!] Error while converting Key to plaintext format:", err)
-		return
-	}
-
-	newFilename := fmt.Sprintf("%s.pt", filename)
-
-	// check if the given file exists and can be opened
-	file, err := os.Open(newFilename)
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
-	}
-	defer file.Close()
-
+// parse private key
+func parsePriv(file *os.File, newFilename string) {
 	data, err := readUntilNullByte(file)
 
 	if err != nil {
@@ -322,11 +284,147 @@ func main() {
 	printComment(comment)
 
 	// cleanup section
+	cleanup(newFilename)
+}
+
+// parse public key
+func parsePub(file *os.File, newFilename string) {
+	// read protocol string
+	length := readLength(file)
+	data := readNumberOfBytes(length, file)
+	printProtocolKey(data)
+
+	// read public exponent
+	length = readLength(file)
+	e := bytesToHex(readNumberOfBytes(length, file))
+	printExponent(e, true)
+
+	// read public modulus
+	length = readLength(file)
+	n := bytesToHex(readNumberOfBytes(length, file))
+	printModulus(n, false)
+
+	cleanup(newFilename)
+}
+
+// cleanup files after execution
+func cleanup(filename string) {
 	fmt.Println()
 	fmt.Println("[*] Cleaning up after execution [*]")
-	err = os.Remove(newFilename)
+	err := os.Remove(filename)
 
 	if err != nil {
 		return
+	}
+}
+
+// convert private key to plaintext format
+func convertPriv(filename string) error {
+	commandString := fmt.Sprintf("cat %s | grep -v '^--' | base64 -d > %s.pt", filename, filename)
+	cmd := exec.Command("bash", "-c", commandString)
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err := cmd.Run()
+	if err != nil {
+		fmt.Println("[!] Error while converting Key to plaintext format:", err)
+		os.Exit(1)
+	}
+	return err
+}
+
+// convert public key to plaintext format
+func convertPub(filename string) error {
+	commandString := fmt.Sprintf("cat %s | awk '{ print $2 }' | base64 -d > %s.pt", filename, filename)
+	cmd := exec.Command("bash", "-c", commandString)
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err := cmd.Run()
+	if err != nil {
+		fmt.Println("[!] Error while converting Key to plaintext format:", err)
+		os.Exit(1)
+	}
+	return err
+}
+
+var fullValuesFlag bool = false
+
+func main() {
+	// check for CLI argument and print help menu
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: ./sshrecover <id_rsa> [full]")
+		return
+	}
+	filename := os.Args[1]
+
+	// check if `full` argument is supplied
+	if checkIfOption("full", os.Args) {
+		fullValuesFlag = true
+	}
+
+	if checkIfOption("priv", os.Args) {
+		// check if the given file is a valid private key
+		fileData, err := ioutil.ReadFile(filename)
+		if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
+
+		if !checkIfPriv(fileData) {
+			fmt.Println("[!] The given file is not a valid SSH RSA Private Key... stopping!")
+			return
+		}
+		// convert private key to plaintext format
+		err = convertPriv(filename)
+		if err != nil {
+			fmt.Println("[!] Error while converting Key to plaintext format:", err)
+			return
+		}
+
+		newFilename := fmt.Sprintf("%s.pt", filename)
+
+		// check if the given file exists and can be opened
+		file, err := os.Open(newFilename)
+		if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
+		defer file.Close()
+
+		parsePriv(file, newFilename)
+	} else if checkIfOption("pub", os.Args) {
+		// check if the given file is a valid public key
+		fileData, err := ioutil.ReadFile(filename)
+		if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
+
+		if !checkIfPub(fileData) {
+			fmt.Println("[!] The given file is not a valid SSH RSA Public Key... stopping!")
+			return
+		}
+
+		// convert private key to plaintext format
+		err = convertPub(filename)
+		if err != nil {
+			fmt.Println("[!] Error while converting Key to plaintext format:", err)
+			return
+		}
+
+		newFilename := fmt.Sprintf("%s.pt", filename)
+
+		// check if the given file exists and can be opened
+		file, err := os.Open(newFilename)
+		if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
+		defer file.Close()
+
+		parsePub(file, newFilename)
 	}
 }
