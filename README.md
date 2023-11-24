@@ -27,5 +27,5 @@ in the project directory.
 ```
 
 ## TODO
-- [ ] Add functionality to parse encrypted keys
+- [ x ] Add functionality to parse encrypted keys
 - [ ] Put functions in their own modules
