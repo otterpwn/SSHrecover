@@ -28,4 +28,4 @@ in the project directory.
 
 ## TODO
 - [x] Add functionality to parse encrypted keys
-- [ ] Put functions in their own modules
+- [ ] Better output handling for john command (used when user chooses to crack password of an encrypted key)
