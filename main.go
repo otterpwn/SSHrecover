@@ -356,7 +356,6 @@ func bruteforceKey(filename string) error {
 	}
 
 	commandString := fmt.Sprintf("ssh2john %s > %s.hash", filename, filename)
-	// fmt.Println(commandString)
 	cmd := exec.Command("bash", "-c", commandString)
 
 	cmd.Stdout = os.Stdout
@@ -369,7 +368,6 @@ func bruteforceKey(filename string) error {
 	}
 
 	commandString = fmt.Sprintf("john %s.hash -w=%s", filename, wordlist)
-	// fmt.Println(commandString)
 	cmd = exec.Command("bash", "-c", commandString)
 
 	cmd.Stdout = os.Stdout
@@ -382,7 +380,6 @@ func bruteforceKey(filename string) error {
 	}
 
 	commandString = fmt.Sprintf("john %s.hash --show", filename)
-	// fmt.Println(commandString)
 	cmd = exec.Command("bash", "-c", commandString)
 
 	cmd.Stdout = os.Stdout

@@ -25,7 +25,3 @@ in the project directory.
 # or to print the full parameter values
 ./sshrecover id_rsa.pub pub full
 ```
-
-## TODO
-- [x] Add functionality to parse encrypted keys
-- [ ] Better output handling for john command (used when user chooses to crack password of an encrypted key)
