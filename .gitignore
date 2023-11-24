@@ -3,4 +3,4 @@ pub.b64
 id_rsa
 id_rsa.pub
 sshrecover
-./enc/*
+enc/
