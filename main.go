@@ -172,7 +172,7 @@ func printComment(comment string) {
 }
 
 // parse private key
-func parsePriv(file *os.File, newFilename string) {
+func parsePriv(file *os.File, newFilename, ogFilename string) {
 	data, err := readUntilNullByte(file)
 
 	if err != nil {
@@ -197,6 +197,29 @@ func parsePriv(file *os.File, newFilename string) {
 
 	// print resulting cipher info
 	printCipherInfo(cipherName, kdfName)
+	// check if the key is encrypted
+	if cipherName != "none" {
+		fmt.Println("[!] The provided key is encrypted...")
+		fmt.Print("[?] Do you want to bruteforce the password? [y] / n ")
+
+		// check if user wants to bruteforce the password
+		// default choice is y
+		choice := ""
+		fmt.Scanln(&choice)
+		choice = strings.ToLower(choice)
+
+		if len(choice) == 0 {
+			choice = "y"
+		}
+
+		if choice == "y" {
+			bruteforceKey(ogFilename)
+			return
+		} else {
+			fmt.Println("[?] User chose NO... stopping!")
+			return
+		}
+	}
 
 	// parse kdfoptions buffer
 	// if the key is not encrypted the size will be 0 and there will be not bytes
@@ -318,6 +341,63 @@ func cleanup(filename string) {
 	}
 }
 
+// function to bruteforce the password for a encrypted key using `ssh2john` and `john`
+// needs partial or absolute path to wordlist
+func bruteforceKey(filename string) error {
+	wordlist := ""
+
+	fmt.Print("[X] Choose a wordlist: ")
+	fmt.Scanln(&wordlist)
+
+	for len(wordlist) == 0 {
+		fmt.Println("[!] The path you gave seems to be empty!")
+		fmt.Print("[X] Choose a wordlist: ")
+		fmt.Scanln(&wordlist)
+	}
+
+	commandString := fmt.Sprintf("ssh2john %s > %s.hash", filename, filename)
+	// fmt.Println(commandString)
+	cmd := exec.Command("bash", "-c", commandString)
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err := cmd.Run()
+	if err != nil {
+		fmt.Println("[!] Error while extracting hash from RSA key file:", err)
+		os.Exit(1)
+	}
+
+	commandString = fmt.Sprintf("john %s.hash -w=%s", filename, wordlist)
+	// fmt.Println(commandString)
+	cmd = exec.Command("bash", "-c", commandString)
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err = cmd.Run()
+	if err != nil {
+		fmt.Println("[!] Error while running `john`:", err)
+		os.Exit(1)
+	}
+
+	commandString = fmt.Sprintf("john %s.hash --show", filename)
+	// fmt.Println(commandString)
+	cmd = exec.Command("bash", "-c", commandString)
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err = cmd.Run()
+	if err != nil {
+		fmt.Println("[!] Error while showing cracked password:", err)
+		fmt.Printf("[!] Try to run `john %s.hash --show` manually\n", filename)
+		os.Exit(1)
+	}
+
+	return err
+}
+
 // convert private key to plaintext format
 func convertPriv(filename string) error {
 	commandString := fmt.Sprintf("cat %s | grep -v '^--' | base64 -d > %s.pt", filename, filename)
@@ -394,7 +474,7 @@ func main() {
 		}
 		defer file.Close()
 
-		parsePriv(file, newFilename)
+		parsePriv(file, newFilename, filename)
 	} else if checkIfOption("pub", os.Args) {
 		// check if the given file is a valid public key
 		fileData, err := ioutil.ReadFile(filename)
